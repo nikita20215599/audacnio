@@ -1,0 +1,546 @@
+PluginInfo = {
+  Name = "Audac NIO Family",
+  Version = "1.0.0",
+  Id = "98871234-1234-5678-9abc-def012345678", -- Random GUID
+  Description = "Control for Audac NIO240 and family devices",
+  ShowDebug = true,
+  Author = "Cursor Agent"
+}
+
+function GetProperties()
+  return {
+    {
+      Name = "IP Address",
+      Type = "string",
+      Value = "192.168.0.100"
+    },
+    {
+      Name = "Port",
+      Type = "integer",
+      Value = 5001,
+      Min = 1,
+      Max = 65535
+    },
+    {
+      Name = "Model",
+      Type = "enum",
+      Choices = {"NIO240"},
+      Value = "NIO240"
+    }
+  }
+end
+
+function RectifyProperties(props)
+  return props
+end
+
+function GetControls(props)
+  local ctrls = {}
+  
+  -- Connection Status
+  table.insert(ctrls, {
+    Name = "Status",
+    ControlType = "Indicator",
+    IndicatorType = "Status",
+    PinStyle = "Output",
+    Count = 1,
+    UserPin = true
+  })
+  
+  table.insert(ctrls, {
+    Name = "Online",
+    ControlType = "Indicator",
+    IndicatorType = "Led",
+    PinStyle = "Output",
+    Count = 1,
+    UserPin = true
+  })
+
+  table.insert(ctrls, {
+    Name = "IP_Address_Runtime",
+    ControlType = "Text",
+    PinStyle = "Both",
+    UserPin = true,
+    Count = 1
+  })
+
+  -- Inputs
+  local inputs = {
+    "XI1", "XI2", 
+    "J1L", "J1R", 
+    "B1L", "B1R", 
+    "DI1", "DI2", "DI3", "DI4"
+  }
+  
+  for i, name in ipairs(inputs) do
+    -- Gain Fader
+    table.insert(ctrls, {
+      Name = "Input_Gain_" .. name,
+      ControlType = "Knob",
+      ControlUnit = "dB",
+      Min = -90,
+      Max = 10,
+      PinStyle = "Both",
+      UserPin = true,
+      Count = 1
+    })
+    -- Mute
+    table.insert(ctrls, {
+      Name = "Input_Mute_" .. name,
+      ControlType = "Button",
+      ButtonType = "Toggle",
+      PinStyle = "Both",
+      UserPin = true,
+      Count = 1
+    })
+    -- Stereo Pair (for applicable pairs)
+    if i % 2 == 1 and i < #inputs then -- Simple pairing logic for now: 1-2, 3-4, etc.
+      table.insert(ctrls, {
+        Name = "Input_Stereo_" .. name .. "_" .. inputs[i+1],
+        ControlType = "Button",
+        ButtonType = "Toggle",
+        PinStyle = "Both",
+        UserPin = true,
+        Count = 1
+      })
+    end
+    -- Route to Outputs (assuming matrix)
+    for j=1, 4 do
+      table.insert(ctrls, {
+        Name = "Route_" .. name .. "_to_DO" .. j,
+        ControlType = "Button",
+        ButtonType = "Toggle",
+        PinStyle = "Both",
+        UserPin = true,
+        Count = 1
+      })
+    end
+  end
+
+  -- Outputs
+  local outputs = {"DO1", "DO2", "DO3", "DO4"}
+  for i, name in ipairs(outputs) do
+    table.insert(ctrls, {
+      Name = "Output_Gain_" .. name,
+      ControlType = "Knob",
+      ControlUnit = "dB",
+      Min = -90,
+      Max = 10,
+      PinStyle = "Both",
+      UserPin = true,
+      Count = 1
+    })
+    table.insert(ctrls, {
+      Name = "Output_Mute_" .. name,
+      ControlType = "Button",
+      ButtonType = "Toggle",
+      PinStyle = "Both",
+      UserPin = true,
+      Count = 1
+    })
+    -- Stereo Pair
+    if i % 2 == 1 then
+       table.insert(ctrls, {
+        Name = "Output_Stereo_" .. name .. "_" .. outputs[i+1],
+        ControlType = "Button",
+        ButtonType = "Toggle",
+        PinStyle = "Both",
+        UserPin = true,
+        Count = 1
+      })
+    end
+  end
+
+  return ctrls
+end
+
+function GetControlLayout(props)
+  local layout = {}
+  local graphics = {}
+  
+  -- Colors
+  local bg_color = {40, 40, 40} -- Dark grey
+  local strip_bg = {30, 30, 30}
+  local text_color = {220, 220, 220}
+  local accent_color = {200, 100, 50} -- Audac orange-ish?
+  
+  -- Logo
+  table.insert(graphics, {
+    Type = "Text",
+    Text = "AUDAC",
+    HTextAlign = "Left",
+    Font = "Roboto",
+    FontSize = 24,
+    FontStyle = "Bold",
+    Color = {255, 255, 255},
+    Position = {20, 20},
+    Size = {100, 30}
+  })
+  
+  table.insert(graphics, {
+    Type = "Text",
+    Text = "Touch",
+    HTextAlign = "Left",
+    Font = "Roboto",
+    FontSize = 24,
+    FontStyle = "Normal",
+    Color = {150, 150, 150},
+    Position = {120, 20},
+    Size = {100, 30}
+  })
+
+  table.insert(graphics, {
+    Type = "Text",
+    Text = "YOUR LOGO", -- User requested "my logo"
+    HTextAlign = "Right",
+    Font = "Roboto",
+    FontSize = 16,
+    FontStyle = "Italic",
+    Color = {100, 100, 100},
+    Position = {600, 20},
+    Size = {100, 30}
+  })
+
+  -- Main Mixer Layout
+  local x_start = 20
+  local y_start = 80
+  local strip_w = 60
+  local strip_h = 400
+  local gap = 10
+  
+  local inputs = {
+    "XI1", "XI2", 
+    "J1L", "J1R", 
+    "B1L", "B1R", 
+    "DI1", "DI2", "DI3", "DI4"
+  }
+  
+  -- Input Strips
+  for i, name in ipairs(inputs) do
+    local x = x_start + (i-1)*(strip_w + gap)
+    
+    -- Strip Background
+    table.insert(graphics, {
+      Type = "GroupBox",
+      Text = "",
+      Fill = strip_bg,
+      StrokeWidth = 0,
+      CornerRadius = 4,
+      Position = {x, y_start},
+      Size = {strip_w, strip_h}
+    })
+    
+    -- Label
+    table.insert(graphics, {
+      Type = "Text",
+      Text = name,
+      Color = text_color,
+      Position = {x, y_start + 5},
+      Size = {strip_w, 20}
+    })
+    
+    -- Gain Value (Text Display)
+    -- Typically Q-SYS Faders show value, but we can add a box
+    
+    -- Fader
+    layout["Input_Gain_" .. name] = {
+      Style = "Fader",
+      Position = {x + 10, y_start + 40},
+      Size = {strip_w - 20, 250},
+      Color = {100, 100, 100} -- Fader track color
+    }
+    
+    -- Mute
+    layout["Input_Mute_" .. name] = {
+      Style = "Button",
+      Legend = "MUTE",
+      Position = {x + 5, y_start + 300},
+      Size = {strip_w - 10, 30},
+      Color = {180, 50, 50}, -- Red when muted usually
+      OffColor = {60, 60, 60}
+    }
+    
+    -- Stereo Pair (draw between 1-2, 3-4 etc)
+    if i % 2 == 1 and i < #inputs then
+      layout["Input_Stereo_" .. name .. "_" .. inputs[i+1]] = {
+        Style = "Button",
+        Legend = "LINK",
+        Position = {x + strip_w - 5, y_start + 10},
+        Size = {20, 20},
+        Color = accent_color
+      }
+    end
+
+    -- Route (just one example, normally would be a matrix view)
+    layout["Route_" .. name .. "_to_DO1"] = {
+      Style = "Button",
+      Legend = "Route",
+      Position = {x + 5, y_start + 340},
+      Size = {strip_w - 10, 20}
+    }
+  end
+
+  -- Output Section
+  local x_out_start = x_start + (#inputs * (strip_w + gap)) + 40
+  
+  table.insert(graphics, {
+    Type = "Text",
+    Text = "OUTPUTS",
+    Color = text_color,
+    Position = {x_out_start, y_start - 30},
+    Size = {200, 20},
+    FontSize = 16
+  })
+
+  local outputs = {"DO1", "DO2", "DO3", "DO4"}
+  for i, name in ipairs(outputs) do
+    local x = x_out_start + (i-1)*(strip_w + gap)
+     -- Strip Background
+    table.insert(graphics, {
+      Type = "GroupBox",
+      Text = "",
+      Fill = {40, 30, 30}, -- Slightly reddish for outputs
+      StrokeWidth = 0,
+      CornerRadius = 4,
+      Position = {x, y_start},
+      Size = {strip_w, strip_h}
+    })
+    
+    -- Label
+    table.insert(graphics, {
+      Type = "Text",
+      Text = name,
+      Color = text_color,
+      Position = {x, y_start + 5},
+      Size = {strip_w, 20}
+    })
+
+    -- Fader
+    layout["Output_Gain_" .. name] = {
+      Style = "Fader",
+      Position = {x + 10, y_start + 40},
+      Size = {strip_w - 20, 250}
+    }
+
+    -- Mute
+    layout["Output_Mute_" .. name] = {
+      Style = "Button",
+      Legend = "MUTE",
+      Position = {x + 5, y_start + 300},
+      Size = {strip_w - 10, 30},
+      Color = {180, 50, 50},
+      OffColor = {60, 60, 60}
+    }
+  end
+
+  -- Settings Tab (Simple layout below mixer or separate area)
+  -- In Q-SYS we usually define tabs in layout return
+  -- But for single view:
+  
+  local y_settings = y_start + strip_h + 40
+  
+  table.insert(graphics, {
+    Type = "Header",
+    Text = "Settings",
+    Position = {20, y_settings},
+    Size = {700, 30}
+  })
+  
+  table.insert(graphics, {
+    Type = "Text",
+    Text = "IP Address:",
+    Position = {20, y_settings + 40},
+    Size = {100, 20},
+    HTextAlign = "Right"
+  })
+  
+  layout["IP_Address_Runtime"] = {
+    Style = "Text",
+    Position = {130, y_settings + 40},
+    Size = {150, 20}
+  }
+
+  table.insert(graphics, {
+    Type = "Text",
+    Text = "Connection:",
+    Position = {300, y_settings + 40},
+    Size = {100, 20},
+    HTextAlign = "Right"
+  })
+
+  layout["Status"] = {
+    Style = "Text",
+    Position = {410, y_settings + 40},
+    Size = {150, 20},
+    Padding = 5
+  }
+  
+  layout["Online"] = {
+    Style = "Led",
+    Position = {570, y_settings + 40},
+    Size = {20, 20}
+  }
+
+  return layout, graphics
+end
+
+-- Runtime Logic
+if Controls then
+  -- Imports
+  -- Q-SYS libraries are available globally
+  
+  -- Constants
+  local EOL = "\r\n" -- Standard telnet/tcp EOL, might need adjustment
+  
+  -- Variables
+  local conn = TcpSocket.New()
+  local rx_buffer = ""
+  
+  -- Functions
+  function DebugPrint(msg)
+    if Properties["ShowDebug"] then
+      print(os.date("%X") .. ": " .. msg)
+    end
+  end
+
+  function Connect()
+    local ip = Controls.IP_Address_Runtime.String
+    if ip == "" then ip = Properties["IP Address"].Value end
+    local port = Properties["Port"].Value
+    
+    DebugPrint("Connecting to " .. ip .. ":" .. port)
+    conn:Connect(ip, port)
+    Controls.Status.String = "Connecting..."
+  end
+
+  function SendCommand(cmd)
+    if conn.IsConnected then
+      DebugPrint("TX: " .. cmd)
+      conn:Write(cmd .. EOL)
+    else
+      DebugPrint("Not Connected. Cannot send: " .. cmd)
+    end
+  end
+
+  -- Protocol Implementation (Placeholder for Audac ASCII)
+  -- IMPORTANT: The following command strings are placeholders based on generic Audac/AV protocols.
+  -- Please consult the specific Audac NIO240 Command Manual to verify the exact syntax.
+  -- Common variations: 
+  --   "SET VOLUME ZONE 1 0"
+  --   "#|Q001|web|..." (AUDAC Touch protocol)
+  --   "sv 1 10" (Short commands)
+  
+  function UpdateGain(channel, val, is_input)
+    local type_str = is_input and "INPUT" or "OUTPUT"
+    -- Format value (e.g., integer or float)
+    local val_str = string.format("%d", val) 
+    -- Placeholder Command: SET INPUT XI1 GAIN -10
+    local cmd = string.format("SET %s %s GAIN %s", type_str, channel, val_str)
+    SendCommand(cmd)
+  end
+
+  function UpdateMute(channel, is_muted, is_input)
+    local type_str = is_input and "INPUT" or "OUTPUT"
+    local state = is_muted and "ON" or "OFF"
+    -- Placeholder Command: SET INPUT XI1 MUTE ON
+    local cmd = string.format("SET %s %s MUTE %s", type_str, channel, state)
+    SendCommand(cmd)
+  end
+
+  -- Event Handlers
+  conn.Connected = function()
+    DebugPrint("Connected")
+    Controls.Status.String = "Connected"
+    Controls.Online.Boolean = true
+    -- Query current state here
+    -- SendCommand("GET ALL")
+  end
+
+  conn.Reconnect = function()
+    DebugPrint("Reconnecting...")
+    Controls.Status.String = "Reconnecting..."
+    Controls.Online.Boolean = false
+  end
+
+  conn.Closed = function()
+    DebugPrint("Closed")
+    Controls.Status.String = "Closed"
+    Controls.Online.Boolean = false
+  end
+
+  conn.Error = function(err)
+    DebugPrint("Error: " .. err)
+    Controls.Status.String = "Error: " .. err
+  end
+  
+  conn.Data = function()
+    local data = conn:Read(conn.BufferLength)
+    rx_buffer = rx_buffer .. data
+    DebugPrint("RX Raw: " .. data)
+    
+    -- Simple Line parsing
+    while string.find(rx_buffer, EOL) do
+      local line_end = string.find(rx_buffer, EOL)
+      local line = string.sub(rx_buffer, 1, line_end - 1)
+      rx_buffer = string.sub(rx_buffer, line_end + string.len(EOL))
+      
+      DebugPrint("RX Line: " .. line)
+      -- ParseResponse(line)
+    end
+  end
+
+  -- Control Event Mapping
+  local inputs = {
+    "XI1", "XI2", "J1L", "J1R", "B1L", "B1R", "DI1", "DI2", "DI3", "DI4"
+  }
+  
+  for i, name in ipairs(inputs) do
+    Controls["Input_Gain_" .. name].EventHandler = function(ctrl)
+      UpdateGain(name, ctrl.Value, true)
+    end
+    Controls["Input_Mute_" .. name].EventHandler = function(ctrl)
+      UpdateMute(name, ctrl.Boolean, true)
+    end
+    
+    -- Routing Handlers
+    for j=1, 4 do
+      Controls["Route_" .. name .. "_to_DO" .. j].EventHandler = function(ctrl)
+        local state = ctrl.Boolean and "ON" or "OFF"
+        -- Placeholder Command: SET ROUTE XI1 DO1 ON
+        SendCommand(string.format("SET ROUTE %s DO%d %s", name, j, state))
+      end
+    end
+
+    -- Stereo Linking logic
+    if i % 2 == 1 and i < #inputs then
+      local partner = inputs[i+1]
+      Controls["Input_Stereo_" .. name .. "_" .. partner].EventHandler = function(ctrl)
+        -- Logic to link controls
+        -- For now just send a command
+        local state = ctrl.Boolean and "ON" or "OFF"
+        SendCommand("SET INPUT PAIR " .. name .. " " .. partner .. " " .. state)
+      end
+    end
+  end
+  
+  local outputs = {"DO1", "DO2", "DO3", "DO4"}
+  for i, name in ipairs(outputs) do
+    Controls["Output_Gain_" .. name].EventHandler = function(ctrl)
+      UpdateGain(name, ctrl.Value, false)
+    end
+    Controls["Output_Mute_" .. name].EventHandler = function(ctrl)
+      UpdateMute(name, ctrl.Boolean, false)
+    end
+  end
+  
+  Controls.IP_Address_Runtime.EventHandler = function()
+    Connect()
+  end
+
+  -- Initial Startup
+  if Controls.IP_Address_Runtime.String == "" then
+    Controls.IP_Address_Runtime.String = Properties["IP Address"].Value
+  end
+  Connect()
+
+end
